@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mis Cuentas</title>
+<meta name="theme-color" content="#2a78d6">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Mis Cuentas">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f9f9f7;
+  --surface: #fcfcfb;
+  --surface-2: #f0efec;
+  --text: #0b0b0b;
+  --text-2: #52514e;
+  --muted: #898781;
+  --line: #e1e0d9;
+  --border: rgba(11,11,11,0.10);
+  --accent: #2a78d6;
+  --accent-ink: #ffffff;
+  --bar: #2a78d6;
+  --good: #006300;
+  --bad: #d03b3b;
+  --warn: #fab219;
+  --shadow: 0 1px 2px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0d0d0d;
+    --surface: #1a1a19;
+    --surface-2: #262624;
+    --text: #f0efec;
+    --text-2: #c3c2b7;
+    --muted: #898781;
+    --line: #2c2c2a;
+    --border: rgba(255,255,255,0.10);
+    --accent: #3987e5;
+    --bar: #3987e5;
+    --good: #0ca30c;
+    --bad: #e66767;
+    --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d0d0d; --surface: #1a1a19; --surface-2: #262624; --text: #f0efec; --text-2: #c3c2b7;
+  --muted: #898781; --line: #2c2c2a; --border: rgba(255,255,255,0.10); --accent: #3987e5;
+  --bar: #3987e5; --good: #0ca30c; --bad: #e66767; --shadow: none;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 16px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  padding-bottom: calc(76px + env(safe-area-inset-bottom));
+  -webkit-text-size-adjust: 100%;
+}
+header {
+  position: sticky; top: 0; z-index: 5;
+  background: var(--bg);
+  padding: calc(12px + env(safe-area-inset-top)) 16px 8px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+header h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+main { padding: 0 16px 16px; max-width: 640px; margin: 0 auto; }
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 14px; margin-bottom: 12px; box-shadow: var(--shadow);
+}
+.card h2 { font-size: 15px; margin: 0 0 10px; color: var(--text-2); font-weight: 600; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stat .lbl { font-size: 12px; color: var(--muted); }
+.stat .val { font-size: 18px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hero .val { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+.pos { color: var(--good); } .neg { color: var(--text); }
+.row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.row:first-of-type { border-top: 0; }
+.row .grow { flex: 1; min-width: 0; }
+.row .t { font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .s { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .amt { font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tag { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--surface-2); color: var(--text-2); }
+.tag.due { background: var(--bad); color: #fff; }
+.tag.soon { background: var(--warn); color: #0b0b0b; }
+.banner {
+  border-radius: 12px; padding: 12px 14px; margin-bottom: 12px;
+  background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--warn);
+}
+.banner.danger { border-left-color: var(--bad); }
+button, .btn {
+  font: inherit; border: 0; border-radius: 10px; padding: 10px 14px; cursor: pointer;
+  background: var(--surface-2); color: var(--text);
+}
+button.primary { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+button.danger { background: transparent; color: var(--bad); }
+button.small { padding: 6px 10px; font-size: 14px; }
+button.icon { background: transparent; padding: 6px 8px; font-size: 20px; line-height: 1; }
+.btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.fab {
+  position: fixed; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 6;
+  width: 56px; height: 56px; border-radius: 50%; font-size: 30px; line-height: 1;
+  background: var(--accent); color: #fff; box-shadow: 0 4px 14px rgba(0,0,0,.25);
+}
+nav.tabs {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 7;
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  background: var(--surface); border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+nav.tabs button {
+  background: transparent; border-radius: 0; padding: 8px 2px 10px; font-size: 11px; color: var(--muted);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+nav.tabs button .ic { font-size: 20px; line-height: 1.1; }
+nav.tabs button.on { color: var(--accent); font-weight: 600; }
+.bars .b { display: grid; grid-template-columns: 96px 1fr auto; gap: 8px; align-items: center; padding: 4px 0; }
+.bars .name { font-size: 13px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bars .track { height: 14px; }
+.bars .fill { height: 14px; background: var(--bar); border-radius: 0 4px 4px 0; min-width: 2px; }
+.bars .v { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text); }
+.bars .b:hover .fill, .bars .b:focus .fill { opacity: .8; }
+.empty { color: var(--muted); text-align: center; padding: 18px 0; font-size: 14px; }
+select, input, textarea {
+  font: inherit; font-size: 16px; width: 100%; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+}
+textarea { min-height: 120px; font-size: 14px; }
+label { display: block; font-size: 13px; color: var(--text-2); margin: 10px 0 4px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.seg { display: flex; background: var(--surface-2); border-radius: 10px; padding: 3px; gap: 3px; }
+.seg button { flex: 1; padding: 8px; background: transparent; font-size: 14px; }
+.seg button.on { background: var(--surface); box-shadow: var(--shadow); font-weight: 600; }
+dialog {
+  border: 0; padding: 0; width: 100%; max-width: 640px; margin: auto auto 0; border-radius: 18px 18px 0 0;
+  background: var(--surface); color: var(--text); max-height: 92vh;
+}
+dialog::backdrop { background: rgba(0,0,0,.4); }
+dialog form { padding: 16px 16px calc(20px + env(safe-area-inset-bottom)); }
+dialog h3 { margin: 0 0 4px; font-size: 18px; }
+.monthnav { display: flex; align-items: center; gap: 4px; }
+.monthnav span { white-space: nowrap; text-align: center; font-weight: 600; font-size: 15px; }
+.small-note { font-size: 13px; color: var(--muted); }
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(150px + env(safe-area-inset-bottom));
+  background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px; z-index: 20; font-size: 14px;
+  max-width: calc(100% - 32px);
+}
+table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.tbl td { padding: 4px 0; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+table.tbl td:last-child { text-align: right; }
+details summary { cursor: pointer; color: var(--text-2); font-size: 13px; margin-top: 8px; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Mis Cuentas</h1>
+  <div id="headerRight"></div>
+</header>
+<main id="view"></main>
+<button class="fab hidden" id="fab" aria-label="Añadir">+</button>
+<nav class="tabs" id="tabs">
+  <button data-tab="inicio" class="on"><span class="ic">◎</span>Inicio</button>
+  <button data-tab="movimientos"><span class="ic">≡</span>Movimientos</button>
+  <button data-tab="pagos"><span class="ic">◷</span>Pagos</button>
+  <button data-tab="tarjetas"><span class="ic">▭</span>Tarjetas</button>
+  <button data-tab="ajustes"><span class="ic">⚙</span>Ajustes</button>
+</nav>
+<dialog id="dlg"><form id="dlgForm" method="dialog"></form></dialog>
+<script src="app.js"></script>
+</body>
+</html>
