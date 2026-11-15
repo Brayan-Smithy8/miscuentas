@@ -45,6 +45,11 @@ function emptyState() {
     movimientos: [],
     pagos: [],
     tarjetas: [],
+    // saldo = lo que el usuario dijo que tenía en fechaSaldo + movimientos posteriores de esa cuenta
+    cuentas: [
+      { id: 'bbva', nombre: 'BBVA', saldoBase: 0, fechaSaldo: null, ajusteTs: 0 },
+      { id: 'revolut', nombre: 'Revolut', saldoBase: 0, fechaSaldo: null, ajusteTs: 0 }
+    ],
     categorias: DEFAULT_CATS,
     ajustes: { scriptUrl: '', token: '', ultimaSync: null, ultimaCopia: null, notificados: {}, gmailVistos: {} }
   };
@@ -301,12 +306,27 @@ function toast(msg) {
   document.body.appendChild(el); setTimeout(() => el.remove(), 3200);
 }
 
+/* ---------- saldo de las cuentas ---------- */
+// Cuenta un movimiento si es posterior al día en que el usuario puso el saldo.
+// Del mismo día solo cuentan los apuntados a mano o al marcar un pago DESPUÉS de poner el saldo
+// (los correos de ese día se suponen ya incluidos en el saldo que escribió).
+function cuentaMovimiento(c, m) {
+  if (m.cuenta !== c.nombre || !c.fechaSaldo) return false;
+  if (m.fecha > c.fechaSaldo) return true;
+  return m.fecha === c.fechaSaldo && m.origen !== 'gmail' && (m.ts || 0) > (c.ajusteTs || 0);
+}
+const saldoCuenta = c => Math.round((c.saldoBase + S.movimientos.filter(m => cuentaMovimiento(c, m)).reduce((a, m) => a + m.importe, 0)) * 100) / 100;
+const cuentasConSaldo = () => S.cuentas.filter(c => c.fechaSaldo);
+const totalDisponible = () => cuentasConSaldo().reduce((a, c) => a + saldoCuenta(c), 0);
+
 function resumenMes(key) {
+  // los pagos de tarjeta de crédito no son gasto nuevo (las compras ya se contaron), solo restan de la cuenta
   const movs = S.movimientos.filter(m => m.fecha.startsWith(key));
-  const ingresos = movs.filter(m => m.importe > 0).reduce((a, m) => a + m.importe, 0);
-  const gastos = movs.filter(m => m.importe < 0).reduce((a, m) => a - m.importe, 0);
+  const reales = movs.filter(m => m.categoria !== 'Pago de tarjeta');
+  const ingresos = reales.filter(m => m.importe > 0).reduce((a, m) => a + m.importe, 0);
+  const gastos = reales.filter(m => m.importe < 0).reduce((a, m) => a - m.importe, 0);
   const porCat = {};
-  for (const m of movs) if (m.importe < 0) porCat[m.categoria || 'Otros'] = (porCat[m.categoria || 'Otros'] || 0) - m.importe;
+  for (const m of reales) if (m.importe < 0) porCat[m.categoria || 'Otros'] = (porCat[m.categoria || 'Otros'] || 0) - m.importe;
   return { ingresos, gastos, balance: ingresos - gastos, porCat, movs };
 }
 
@@ -343,6 +363,7 @@ function viewInicio() {
     ${urgentes.map(v => `<div class="banner ${v.dias <= 0 ? 'danger' : ''}"><b>${esc(v.nombre)}</b> — ${fmt(v.importe)} ${v.dias < 0 ? `venció el ${shortDate(v.fecha)}` : v.dias === 0 ? 'vence hoy' : `vence el ${shortDate(v.fecha)}`}
       <div class="btns" style="margin-top:8px"><button class="small primary" data-pagar="${v.tipo}|${v.id}|${v.fecha}">Marcar pagado</button></div></div>`).join('')}
     ${copiaVieja ? `<div class="banner">Hace más de un mes que no haces copia de seguridad. <button class="small" data-go="ajustes">Hacer copia</button></div>` : ''}
+    ${viewMiDinero(porPagarMes)}
     <div class="card">
       <h2>${monthLabel(key)}</h2>
       <div class="hero stat"><div class="lbl">Balance del mes</div><div class="val ${r.balance >= 0 ? 'pos' : 'neg'}">${fmt(r.balance)}</div></div>
@@ -351,13 +372,54 @@ function viewInicio() {
         <div class="stat"><div class="lbl">Gastos</div><div class="val">${fmt(r.gastos)}</div></div>
         <div class="stat"><div class="lbl">Por pagar</div><div class="val">${fmt(porPagarMes)}</div></div>
       </div>
-      <div class="small-note" style="margin-top:8px">Te quedaría <b>${fmt(r.balance - porPagarMes)}</b> tras los pagos pendientes de este mes.${nomina ? ` Última nómina: ${fmt(nomina.importe)} el ${shortDate(nomina.fecha)}.` : ''}</div>
+      ${nomina ? `<div class="small-note" style="margin-top:8px">Última nómina: ${fmt(nomina.importe)} el ${shortDate(nomina.fecha)}.</div>` : ''}
     </div>
     <div class="card"><h2>Próximos 30 días</h2>${proximos.length ? proximos.map(v => filaVenc(v)).join('') : '<div class="empty">Nada pendiente. Añade tus pagos fijos en la pestaña Pagos.</div>'}</div>
     <div class="card"><h2>Gastos por categoría</h2>${barras(r.porCat)}</div>
     ${S.tarjetas.length ? `<div class="card"><h2>Tarjetas · deuda total ${fmt(deudaTarjetas)}</h2>${S.tarjetas.map(t => `<div class="row"><div class="grow"><div class="t">${esc(t.nombre)}</div><div class="s">${t.diaPago ? 'Pago el día ' + t.diaPago : 'Sin día de pago'}</div></div><div class="amt">${fmt(t.saldo)}</div></div>`).join('')}</div>` : ''}
     ${S.ajustes.scriptUrl ? `<div class="btns"><button data-sync>↻ Leer correos de Gmail</button></div><div class="small-note" style="margin-top:6px">${S.ajustes.ultimaSync ? 'Última lectura: ' + new Date(S.ajustes.ultimaSync).toLocaleString('es-ES') : 'Aún no se han leído correos'}</div>` : ''}
   `;
+}
+
+function viewMiDinero(porPagarMes) {
+  const conSaldo = cuentasConSaldo();
+  const total = totalDisponible();
+  const filas = S.cuentas.map(c => `<div class="row" data-editcuenta="${c.id}" style="cursor:pointer">
+      <div class="grow"><div class="t">${esc(c.nombre)}</div><div class="s">${c.fechaSaldo ? 'Saldo puesto el ' + shortDate(c.fechaSaldo) + ' · toca para corregir' : 'Toca para poner tu saldo'}</div></div>
+      <div class="amt">${c.fechaSaldo ? fmt(saldoCuenta(c)) : '—'}</div></div>`).join('');
+  return `<div class="card">
+    <h2>Mi dinero</h2>
+    ${conSaldo.length ? `<div class="hero stat"><div class="lbl">Total en ${conSaldo.length === S.cuentas.length ? 'tus cuentas' : conSaldo.map(c => esc(c.nombre)).join(' y ')}</div><div class="val">${fmt(total)}</div></div>
+      <div class="small-note" style="margin:4px 0 6px">Tras los pagos pendientes de este mes te quedarían <b>${fmt(total - porPagarMes)}</b>.</div>`
+      : '<div class="small-note" style="margin-bottom:6px">Pon lo que tienes ahora en cada cuenta. A partir de ahí la app suma los ingresos y resta los gastos de esa cuenta.</div>'}
+    ${filas}
+    <div class="btns" style="margin-top:8px"><button class="small" data-addcuenta>+ Añadir cuenta</button></div>
+  </div>`;
+}
+
+function formCuenta(c) {
+  const nueva = !c;
+  c = c || { nombre: '', saldoBase: 0, fechaSaldo: null };
+  const actual = c.fechaSaldo ? saldoCuenta(c) : 0;
+  abrirForm(`<h3>${nueva ? 'Nueva cuenta' : 'Saldo de ' + esc(c.nombre)}</h3>
+    ${nueva ? '<label>Nombre</label><input name="nombre" required placeholder="Efectivo, ING, ahorro…">' : ''}
+    <label>¿Cuánto tienes ahora mismo? (€)</label>
+    <input name="saldo" inputmode="decimal" required value="${c.fechaSaldo ? numStr(actual) : ''}" placeholder="0,00">
+    <div class="small-note" style="margin-top:6px">Mira el saldo en la app del banco y escríbelo aquí. Desde hoy, los movimientos de esta cuenta lo irán actualizando. Si en algún momento no cuadra, vuelve aquí y corrígelo.</div>`,
+    fd => {
+      const saldo = num(fd.get('saldo'));
+      const datos = { saldoBase: saldo, fechaSaldo: iso(today()), ajusteTs: Date.now() };
+      if (nueva) {
+        const nombre = (fd.get('nombre') || '').trim();
+        if (!nombre) { toast('Pon un nombre'); return false; }
+        if (S.cuentas.some(x => x.nombre.toLowerCase() === nombre.toLowerCase())) { toast('Ya existe esa cuenta'); return false; }
+        S.cuentas.push({ id: uid(), nombre, ...datos });
+      } else {
+        // si hoy ya hubo movimientos apuntados después del último ajuste, el nuevo saldo ya los incluye
+        Object.assign(c, datos);
+      }
+    },
+    nueva || ['bbva', 'revolut'].includes(c.id) ? null : () => { S.cuentas = S.cuentas.filter(x => x !== c); });
 }
 
 function viewMovimientos() {
@@ -460,7 +522,7 @@ const num = v => {
 };
 const numStr = n => n ? String(n).replace('.', ',') : '';
 const catOptions = sel => S.categorias.map(c => `<option ${c.nombre === sel ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('');
-const cuentaOptions = sel => ['', ...new Set([...S.tarjetas.map(t => t.nombre), 'BBVA', 'Revolut', 'Efectivo'])].map(c => `<option value="${esc(c)}" ${c === sel ? 'selected' : ''}>${c ? esc(c) : '—'}</option>`).join('');
+const cuentaOptions = (sel, soloBancos = false) => ['', ...new Set([...S.cuentas.map(c => c.nombre), ...(soloBancos ? [] : S.tarjetas.map(t => t.nombre)), ...(sel ? [sel] : [])])].map(c => `<option value="${esc(c)}" ${c === sel ? 'selected' : ''}>${c ? esc(c) : '—'}</option>`).join('');
 
 function formMovimiento(m) {
   const nuevo = !m;
@@ -479,7 +541,7 @@ function formMovimiento(m) {
       const imp = num(fd.get('importe')); if (!imp) { toast('Pon un importe'); return false; }
       const concepto = fd.get('concepto').trim();
       const datos = { fecha: fd.get('fecha'), importe: ingreso ? imp : -imp, concepto, cuenta: fd.get('cuenta'), categoria: fd.get('categoria') || autoCategoria(concepto, ingreso) };
-      if (nuevo) S.movimientos.push({ id: uid(), origen: 'manual', ...datos }); else Object.assign(m, datos);
+      if (nuevo) S.movimientos.push({ id: uid(), origen: 'manual', ts: Date.now(), ...datos }); else Object.assign(m, datos);
     },
     nuevo ? null : () => { S.movimientos = S.movimientos.filter(x => x !== m); });
   form.querySelectorAll('#segTipo button').forEach(b => b.onclick = () => {
@@ -500,7 +562,7 @@ function formPago(p) {
     <div id="fFecha"><label>Fecha</label><input type="date" name="fecha" value="${p.fecha || iso(today())}"></div>
     <div class="grid2"><div><label>Avisar días antes</label><input name="avisarDias" type="number" min="0" max="30" value="${p.avisarDias}"></div>
     <div><label>Categoría</label><select name="categoria">${catOptions(p.categoria)}</select></div></div>
-    <label>Se paga desde</label><select name="cuenta">${cuentaOptions(p.cuenta)}</select>`,
+    <label>Se paga desde</label><select name="cuenta">${cuentaOptions(p.cuenta, true)}</select>`,
     fd => {
       const datos = { nombre: fd.get('nombre').trim(), importe: num(fd.get('importe')), frecuencia: fd.get('frecuencia'), dia: Math.min(31, Math.max(1, +fd.get('dia') || 1)), mes: Math.min(12, Math.max(1, +fd.get('mes') || 1)), fecha: fd.get('fecha'), avisarDias: Math.max(0, +fd.get('avisarDias') || 0), categoria: fd.get('categoria'), cuenta: fd.get('cuenta') };
       if (datos.frecuencia === 'unico') datos.dia = parseISO(datos.fecha).getDate();
@@ -523,10 +585,11 @@ function formTarjeta(t) {
     <div><label>Límite (€)</label><input name="limite" inputmode="decimal" value="${numStr(t.limite)}"></div></div>
     <div class="grid2"><div><label>Día de corte</label><input name="diaCorte" type="number" min="1" max="31" value="${t.diaCorte || ''}"></div>
     <div><label>Día de pago</label><input name="diaPago" type="number" min="1" max="31" value="${t.diaPago || ''}"></div></div>
-    <label>Avisar días antes</label><input name="avisarDias" type="number" min="0" max="30" value="${t.avisarDias ?? 3}">
+    <div class="grid2"><div><label>Avisar días antes</label><input name="avisarDias" type="number" min="0" max="30" value="${t.avisarDias ?? 3}"></div>
+    <div><label>Se paga desde</label><select name="cuentaPago">${cuentaOptions(t.cuentaPago ?? (S.cuentas.some(c => c.nombre === t.banco) ? t.banco : ''), true)}</select></div></div>
     <div class="small-note" style="margin-top:6px">Los últimos 4 dígitos sirven para asociar los correos a esta tarjeta.</div>`,
     fd => {
-      const datos = { nombre: fd.get('nombre').trim(), banco: fd.get('banco'), ultimos4: fd.get('ultimos4').trim(), saldo: num(fd.get('saldo')), limite: num(fd.get('limite')), diaCorte: +fd.get('diaCorte') || 0, diaPago: +fd.get('diaPago') || 0, avisarDias: Math.max(0, +fd.get('avisarDias') || 0) };
+      const datos = { nombre: fd.get('nombre').trim(), banco: fd.get('banco'), ultimos4: fd.get('ultimos4').trim(), saldo: num(fd.get('saldo')), limite: num(fd.get('limite')), diaCorte: +fd.get('diaCorte') || 0, diaPago: +fd.get('diaPago') || 0, avisarDias: Math.max(0, +fd.get('avisarDias') || 0), cuentaPago: fd.get('cuentaPago') };
       if (nuevo) S.tarjetas.push({ id: uid(), pagados: {}, creado: iso(today()), ...datos }); else Object.assign(t, datos);
     },
     nuevo ? null : () => { S.tarjetas = S.tarjetas.filter(x => x !== t); });
@@ -536,12 +599,16 @@ function marcarPagado(tipo, id, fecha) {
   if (tipo === 'pago') {
     const p = S.pagos.find(x => x.id === id); if (!p) return;
     p.pagados = p.pagados || {}; p.pagados[fecha] = true;
-    S.movimientos.push({ id: uid(), fecha: iso(today()), importe: -(p.importe || 0), concepto: p.nombre, categoria: p.categoria || 'Otros', cuenta: p.cuenta || '', origen: 'pago' });
+    S.movimientos.push({ id: uid(), fecha: iso(today()), importe: -(p.importe || 0), concepto: p.nombre, categoria: p.categoria || 'Otros', cuenta: p.cuenta || '', origen: 'pago', ts: Date.now() });
   } else {
     const t = S.tarjetas.find(x => x.id === id); if (!t) return;
     const v = vencimientos().find(v => v.id === id && v.fecha === fecha);
     t.pagados = t.pagados || {}; t.pagados[fecha] = true;
-    t.saldo = Math.max(0, Math.round(((t.saldo || 0) - (v ? v.importe : 0)) * 100) / 100);
+    const importe = v ? v.importe : 0;
+    t.saldo = Math.max(0, Math.round(((t.saldo || 0) - importe) * 100) / 100);
+    // el dinero sale de la cuenta bancaria (no cuenta como gasto nuevo en las estadísticas)
+    const cuenta = t.cuentaPago ?? (S.cuentas.some(c => c.nombre === t.banco) ? t.banco : '');
+    if (importe > 0) S.movimientos.push({ id: uid(), fecha: iso(today()), importe: -importe, concepto: 'Pago tarjeta ' + t.nombre, categoria: 'Pago de tarjeta', cuenta, origen: 'pago', ts: Date.now() });
   }
   save(); render(); toast('Marcado como pagado');
 }
@@ -551,10 +618,12 @@ $('#tabs').addEventListener('click', e => { const b = e.target.closest('button[d
 $('#fab').addEventListener('click', () => { if (tab === 'pagos') formPago(); else if (tab === 'tarjetas') formTarjeta(); else formMovimiento(); });
 $('#view').addEventListener('change', e => { if (e.target.id === 'filtroCat') { filtroCat = e.target.value; render(); } });
 $('#view').addEventListener('click', async e => {
-  const el = e.target.closest('[data-pagar],[data-mes],[data-editmov],[data-editpago],[data-edittarj],[data-ics],[data-sync],[data-notif],[data-saveg],[data-savecats],[data-recat],[data-backup],[data-restore],[data-wipe],[data-go]');
+  const el = e.target.closest('[data-pagar],[data-mes],[data-editmov],[data-editpago],[data-edittarj],[data-ics],[data-sync],[data-notif],[data-saveg],[data-savecats],[data-recat],[data-backup],[data-restore],[data-wipe],[data-go],[data-editcuenta],[data-addcuenta]');
   if (!el) return;
   const d = el.dataset;
-  if (d.pagar) { const [t, id, f] = d.pagar.split('|'); marcarPagado(t, id, f); }
+  if (d.editcuenta) formCuenta(S.cuentas.find(c => c.id === d.editcuenta));
+  else if ('addcuenta' in d) formCuenta();
+  else if (d.pagar) { const [t, id, f] = d.pagar.split('|'); marcarPagado(t, id, f); }
   else if (d.mes) { mesMov = shiftMonth(mesMov, +d.mes); filtroCat = ''; render(); }
   else if (d.editmov) formMovimiento(S.movimientos.find(m => m.id === d.editmov));
   else if (d.editpago) formPago(S.pagos.find(p => p.id === d.editpago));
