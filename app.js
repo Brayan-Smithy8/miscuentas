@@ -24,7 +24,7 @@ const shiftMonth = (key, n) => { const [y, m] = key.split('-').map(Number); retu
 /* ---------- datos ---------- */
 // Palabras completas (no trozos): "dia" no coincide con "MediaMarkt". Comercios de Bélgica y España.
 const DEFAULT_CATS = [
-  ['Nómina', 'nomina, salario, salaire, loon, wedde, salary, payroll'],
+  ['Nómina', 'nomina, salario, salaire, loon, wedde, salary, payroll, altera management, altera, str'],
   ['Ingresos', 'transferencia recibida, bizum recibido, reembolso, devolucion, abono, remboursement, terugbetaling, refund, virement recu, overschrijving ontvangen'],
   ['Vivienda', 'alquiler, hipoteca, loyer, huur, syndic, precompte immobilier, onroerende voorheffing'],
   ['Suministros', 'engie, electrabel, luminus, totalenergies power, eneco, mega, octa+, vivaqua, swde, de watergroep, farys, proximus, telenet, orange belgium, base be, mobile vikings, scarlet, voo, iberdrola, endesa, movistar, vodafone'],
@@ -41,7 +41,7 @@ const DEFAULT_CATS = [
 
 function emptyState() {
   return {
-    version: 1,
+    version: 2,
     movimientos: [],
     pagos: [],
     tarjetas: [],
@@ -55,8 +55,23 @@ function load() {
     if (!raw) return emptyState();
     const s = JSON.parse(raw);
     const base = emptyState();
-    return { ...base, ...s, ajustes: { ...base.ajustes, ...(s.ajustes || {}) } };
+    return migrar({ ...base, ...s, ajustes: { ...base.ajustes, ...(s.ajustes || {}) } });
   } catch (e) { console.error(e); return emptyState(); }
+}
+// Al actualizar la app: añade las palabras nuevas de las categorías por defecto sin tocar las que el usuario ya tiene.
+const VERSION_DATOS = 2;
+function migrar(s) {
+  if ((s.version || 1) >= VERSION_DATOS) return s;
+  for (const def of DEFAULT_CATS) {
+    const c = s.categorias.find(c => c.nombre === def.nombre);
+    if (!c) { if (def.nombre !== 'Otros') s.categorias.splice(Math.max(0, s.categorias.length - 1), 0, { ...def, palabras: [...def.palabras] }); continue; }
+    for (const p of def.palabras) if (!c.palabras.includes(p)) c.palabras.push(p);
+  }
+  // ingresos ya importados de STR / Altera → Nómina
+  for (const m of s.movimientos) if (m.importe > 0 && /altera|\bstr\b/i.test(m.concepto)) m.categoria = 'Nómina';
+  s.version = VERSION_DATOS;
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) {}
+  return s;
 }
 let S = load();
 function save() {
@@ -262,7 +277,7 @@ function aplicarCorreos(items) {
       const ingreso = it.tipo === 'ingreso';
       const concepto = it.concepto || (ingreso ? 'Ingreso' : 'Gasto');
       let cat = autoCategoria(concepto + ' ' + (it.texto || ''), ingreso);
-      if (ingreso && /n[oó]mina|salaire|\bloon\b|salary/i.test(concepto + ' ' + (it.texto || ''))) cat = 'Nómina';
+      if (ingreso && /n[oó]mina|salaire|\bloon\b|salary|altera|\bstr\b/i.test(concepto + ' ' + (it.texto || ''))) cat = 'Nómina';
       const t = !ingreso ? buscarTarjeta(it) : null;
       S.movimientos.push({ id: uid(), fecha: it.fecha, importe: ingreso ? it.importe : -it.importe, concepto, categoria: cat, cuenta: t ? t.nombre : (it.banco || ''), origen: 'gmail', gmailId: it.id });
       if (t && it.ultimos4) t.saldo = Math.round(((t.saldo || 0) + it.importe) * 100) / 100;
